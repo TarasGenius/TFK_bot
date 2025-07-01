@@ -1,0 +1,151 @@
+from aiogram import Router, F
+from aiogram.filters.callback_data import CallbackData
+from aiogram.types import Message, CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup
+from aiogram.filters import CommandStart, Command
+from aiogram.fsm.state import StatesGroup, State
+from aiogram.fsm.context import FSMContext
+from aiogram.utils.keyboard import InlineKeyboardBuilder
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.config import START_ANSWER
+from app.database.models import Speciality
+from app.database.orm_query import orm_add_user, orm_get_specialities, orm_set_user_specialities
+
+user_router = Router()
+
+@user_router.message(CommandStart())
+async def start_cmd(message: Message):
+    await message.answer(text=START_ANSWER)
+
+
+
+class Register(StatesGroup):
+    full_name = State()
+    reg_phone = State()
+
+
+
+# FSM register
+@user_router.message(Command('register'))
+async def register(message: Message, state: FSMContext):
+    await state.set_state(Register.full_name)
+    await message.answer('Введіть повне ім\'я(ПІБ)')
+
+
+@user_router.message(Register.full_name)
+async def register_second_step(message: Message, state: FSMContext):
+    await state.update_data(full_name=message.text)
+    await state.set_state(Register.reg_phone)
+    await message.answer('Введіть номер телефону(0661234567)')
+
+
+@user_router.message(Register.reg_phone)
+async def register_third_step(message: Message, state: FSMContext, session: AsyncSession):
+    await state.update_data(reg_phone=message.text)
+    data = await state.get_data()
+    data['user_id'] = message.from_user.id
+    data['first_name'] = message.from_user.first_name
+    data['last_name'] = message.from_user.last_name
+    data['teleg_phone'] = None
+    try:
+        await orm_add_user(session=session, data=data)
+    except IntegrityError:
+        await message.answer('Ви вже зареєстровані')
+    else:
+        await message.answer(f'Реєстрацію завершено. Імя {data["full_name"]}')
+    finally:
+        await state.clear()
+
+
+class ChooseSpeciality(StatesGroup):
+    choosing = State()
+
+
+# Фабрика Callback'ів для керування кнопками
+class SpecialityCallback(CallbackData, prefix="spec"):
+    action: str  # 'select' або 'confirm'
+    speciality_id: int | None = None  # ID спеціальності, None для кнопки "Підтвердити"
+
+
+# Функція для створення динамічної клавіатури
+async def create_specialities_keyboard(
+        specialities: list[Speciality],
+        selected: list[int]
+) -> InlineKeyboardMarkup:  # ВИПРАВЛЕНО: тип повернення змінено на InlineKeyboardMarkup
+    builder = InlineKeyboardBuilder()
+    for spec in specialities:
+        text = f"✅ {spec.name}" if spec.id in selected else spec.name
+        builder.button(
+            text=text,
+            callback_data=SpecialityCallback(action="select", speciality_id=spec.id).pack()
+        )
+    # Робимо кнопки в один стовпчик
+    builder.adjust(1)
+
+    # ВИПРАВЛЕНО: Метод .row() очікує об'єкт кнопки, а не виклик builder.button()
+    # Створюємо кнопку явно через InlineKeyboardButton
+    builder.row(
+        InlineKeyboardButton(
+            text="Підтвердити вибір",
+            callback_data=SpecialityCallback(action="confirm").pack()
+        )
+    )
+    return builder.as_markup()
+
+
+# Хендлер, що запускає процес вибору
+@user_router.message(Command('specialities'))
+async def choose_specialities_start(message: Message, state: FSMContext, session: AsyncSession):
+    specialities = await orm_get_specialities(session)
+    if not specialities:
+        await message.answer("На жаль, наразі немає доступних спеціальностей.")
+        return
+
+    await state.set_state(ChooseSpeciality.choosing)
+    # Зберігаємо в FSM початковий порожній список вибору
+    await state.update_data(selected_ids=[])
+
+    keyboard = await create_specialities_keyboard(specialities, [])
+    await message.answer("Оберіть одну або декілька спеціальностей, за якими хочете отримувати сповіщення:",
+                         reply_markup=keyboard)
+
+
+# Обробник натискання на кнопку спеціальності
+@user_router.callback_query(ChooseSpeciality.choosing, SpecialityCallback.filter(F.action == "select"))
+async def process_speciality_select(callback: CallbackQuery, callback_data: SpecialityCallback, state: FSMContext,
+                                    session: AsyncSession):
+    data = await state.get_data()
+    selected_ids = data.get("selected_ids", [])
+    spec_id = callback_data.speciality_id
+
+    if spec_id in selected_ids:
+        selected_ids.remove(spec_id)
+    else:
+        selected_ids.append(spec_id)
+
+    await state.update_data(selected_ids=selected_ids)
+
+    specialities = await orm_get_specialities(session)
+    keyboard = await create_specialities_keyboard(specialities, selected_ids)
+
+    # Оновлюємо клавіатуру, не надсилаючи нове повідомлення
+    await callback.message.edit_reply_markup(reply_markup=keyboard)
+    await callback.answer()  # Обов'язково відповідаємо на callback
+
+
+# Обробник натискання на кнопку "Підтвердити"
+@user_router.callback_query(ChooseSpeciality.choosing, SpecialityCallback.filter(F.action == "confirm"))
+async def process_speciality_confirm(callback: CallbackQuery, state: FSMContext, session: AsyncSession):
+    data = await state.get_data()
+    selected_ids = data.get("selected_ids", [])
+
+    if not selected_ids:
+        await callback.answer("Ви не обрали жодної спеціальності.", show_alert=True)
+        return
+
+    await orm_set_user_specialities(session, user_id=callback.from_user.id, speciality_ids=selected_ids)
+
+    await callback.message.edit_text("Ваш вибір збережено! Ми будемо надсилати вам актуальну інформацію.")
+    await callback.answer()
+    await state.clear()
