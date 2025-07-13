@@ -1,10 +1,18 @@
+import asyncio
 from aiogram import Router, F
+from aiogram import types
 from aiogram.types import Message
+from aiogram.fsm.context import FSMContext
 from aiogram.filters import Command
 from sqlalchemy.ext.asyncio import AsyncSession
+from aiogram.fsm.state import StatesGroup, State
+from sqlalchemy import select
 
+
+from app.database.models import Speciality, UserSpeciality, User
 from app.database.orm_query import orm_del_user, orm_get_users
 from app.filters.is_admin import IsAdmin
+from app.keyboards.inline import get_callback_buttons
 
 admin_router = Router()
 admin_router.message.filter(IsAdmin())
@@ -45,3 +53,95 @@ async def admin_get_users(message: Message, session: AsyncSession):
     else:
         await message.answer(text)
 
+
+
+class BroadcastFSM(StatesGroup):
+    waiting_for_speciality = State()
+    waiting_for_text = State()
+    waiting_for_file = State()
+
+
+
+@admin_router.message(Command("broadcast"))
+async def start_broadcast(message: Message, state: FSMContext, session: AsyncSession):
+    # Отримуємо спеціальності
+    result = await session.execute(select(Speciality))
+    specialities = result.scalars().all()
+
+    keyboard = types.InlineKeyboardMarkup(
+        inline_keyboard=[
+            [types.InlineKeyboardButton(text=spec.name, callback_data=f"spec_{spec.id}")]
+            for spec in specialities
+        ]
+    )
+
+    await message.answer("Оберіть спеціальність для розсилки:", reply_markup=keyboard)
+    await state.set_state(BroadcastFSM.waiting_for_speciality)
+
+
+@admin_router.callback_query(BroadcastFSM.waiting_for_speciality, F.data.startswith("spec_"))
+async def speciality_chosen(callback: types.CallbackQuery, state: FSMContext):
+    spec_id = int(callback.data.split("_")[1])
+    await state.update_data(speciality_id=spec_id)
+
+    await callback.message.answer("Введіть текст повідомлення:")
+    await state.set_state(BroadcastFSM.waiting_for_text)
+    await callback.answer()
+
+
+@admin_router.message(BroadcastFSM.waiting_for_text)
+async def get_broadcast_text(message: types.Message, state: FSMContext):
+    await state.update_data(message_text=message.text)
+    await message.answer("Надішліть файл, який прикріпити до повідомлення:")
+    await state.set_state(BroadcastFSM.waiting_for_file)
+
+
+@admin_router.message(BroadcastFSM.waiting_for_file, F.document)
+async def broadcast_message(message: types.Message, state: FSMContext, session: AsyncSession, bot):
+    data = await state.get_data()
+    speciality_id = data["speciality_id"]
+    text_to_send = data["message_text"]
+    document = message.document
+    file_id = document.file_id
+
+    # Записуємо file_id у колонку id_file
+    stmt = (
+        select(Speciality)
+        .where(Speciality.id == speciality_id)
+    )
+    result = await session.execute(stmt)
+    speciality = result.scalar_one_or_none()
+    if speciality:
+        speciality.id_file = file_id
+        await session.commit()
+
+    stmt = (
+        select(User)
+        .join(UserSpeciality)
+        .filter(UserSpeciality.speciality_id == speciality_id)
+    )
+    result = await session.execute(stmt)
+    users = result.scalars().all()
+
+    # Формуємо інлайн кнопку
+    keyboard = types.InlineKeyboardMarkup(
+        inline_keyboard=[
+            [types.InlineKeyboardButton(text="Хочу дізнатись", callback_data=f"getfile_{speciality_id}")]
+        ]
+    )
+
+    count = 0
+    for user in users:
+        try:
+            await bot.send_message(
+                chat_id=user.user_id,
+                text=text_to_send,
+                reply_markup=keyboard
+            )
+            count += 1
+            await asyncio.sleep(0.05)  # антифлуд
+        except Exception as e:
+            print(f"Не вдалося надіслати {user.user_id}: {e}")
+
+    await message.answer(f"✅ Розсилка завершена. Надіслано {count} користувачам.")
+    await state.clear()

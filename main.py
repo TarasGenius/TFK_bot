@@ -5,7 +5,7 @@ from aiogram import Bot, Dispatcher
 
 from dotenv import load_dotenv, find_dotenv
 
-from app.database.engine import create_db, session_maker, add_new_speciality
+from app.database.engine import create_db, session_maker, add_new_speciality, create_new_column_id_file
 
 load_dotenv(find_dotenv())
 
@@ -32,6 +32,7 @@ async def on_shutdown(bot):
 
 async def main():
     # await add_new_speciality()
+    # await create_new_column_id_file()
     dp.startup.register(on_startup)
     dp.shutdown.register(on_shutdown)
 

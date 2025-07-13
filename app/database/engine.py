@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from app.database.models import Speciality
-from sqlalchemy import select
+from sqlalchemy import select, text
 
 print(os.getenv('DB_LITE'))
 engine = create_async_engine(url=os.getenv('DB_LITE'), echo=True)
@@ -20,6 +20,15 @@ async def create_db():
         await conn.run_sync(Base.metadata.create_all)
 
 
+async def create_new_column_id_file():
+    async with session_maker() as session:  # <-- ДОДАНО ()
+        try:
+            await session.execute(text("ALTER TABLE specialities ADD COLUMN id_file TEXT"))
+            await session.commit()
+            print("✅ Колонка id_file додана успішно.")
+        except Exception as e:
+            print(f"⚠️ Помилка: {e}")
+            await session.rollback()
 
 
 async def add_new_speciality():

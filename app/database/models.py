@@ -34,6 +34,7 @@ class Speciality(Base):
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     name: Mapped[str] = mapped_column(Text)
     call_back: Mapped[str] = mapped_column(Text)
+    id_file: Mapped[str] = mapped_column(Text)
 
     user_specialities = relationship("UserSpeciality", back_populates="speciality", cascade="all, delete-orphan")
 

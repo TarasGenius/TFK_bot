@@ -7,9 +7,10 @@ from aiogram.fsm.context import FSMContext
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 
 from app.config import START_ANSWER
-from app.database.models import Speciality
+from app.database.models import Speciality, User, Answer
 from app.database.orm_query import orm_add_user, orm_get_specialities, orm_set_user_specialities
 
 user_router = Router()
@@ -149,3 +150,38 @@ async def process_speciality_confirm(callback: CallbackQuery, state: FSMContext,
     await callback.message.edit_text("Ваш вибір збережено! Ми будемо надсилати вам актуальну інформацію.")
     await callback.answer()
     await state.clear()
+
+
+
+@user_router.callback_query(F.data.startswith("getfile_"))
+async def send_requested_file(callback: CallbackQuery, session: AsyncSession, bot):
+    try:
+        spec_id = int(callback.data.split("_")[1])
+    except (IndexError, ValueError):
+        await callback.message.answer("❌ Некоректний запит.")
+        return
+
+    stmt = select(Speciality).where(Speciality.id == spec_id)
+    result = await session.execute(stmt)
+    speciality = result.scalar_one_or_none()
+
+    if speciality and speciality.id_file:
+        await bot.send_document(chat_id=callback.from_user.id, document=speciality.id_file)
+        await callback.answer("✅ Файл надіслано.")
+
+        # Знайти користувача в БД
+        stmt = select(User).where(User.user_id == callback.from_user.id)
+        result = await session.execute(stmt)
+        user = result.scalar_one_or_none()
+
+        # Якщо користувача знайдено, записуємо факт отримання файлу
+        if user:
+            answer = Answer(
+                sms_exams=speciality.name,
+                sms_entered_study="Файл отримав",
+                user=user
+            )
+            session.add(answer)
+            await session.commit()
+    else:
+        await callback.answer("❌ Файл не знайдено або не прикріплений адміністратором.")
