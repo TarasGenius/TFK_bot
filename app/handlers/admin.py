@@ -1,7 +1,8 @@
 import asyncio
+import os
 from aiogram import Router, F
 from aiogram import types
-from aiogram.types import Message
+from aiogram.types import Message, FSInputFile
 from aiogram.fsm.context import FSMContext
 from aiogram.filters import Command
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -10,7 +11,7 @@ from sqlalchemy import select
 
 
 from app.database.models import Speciality, UserSpeciality, User
-from app.database.orm_query import orm_del_user, orm_get_users
+from app.database.orm_query import orm_del_user, orm_get_users, generate_users_csv_dump
 from app.filters.is_admin import IsAdmin
 from app.keyboards.inline import get_callback_buttons
 
@@ -145,3 +146,29 @@ async def broadcast_message(message: types.Message, state: FSMContext, session: 
 
     await message.answer(f"✅ Розсилка завершена. Надіслано {count} користувачам.")
     await state.clear()
+
+
+@admin_router.message(Command("dump"))
+async def send_db_dump(message: Message, session: AsyncSession):
+    await message.answer("⏳ Формую дамп бази даних. Зачекайте...")
+
+    file_path = None
+
+    try:
+        # 2. Викликаємо нашу функцію генерації
+        file_path = await generate_users_csv_dump(session)
+
+        # 3. Відправляємо файл у Telegram
+        document = FSInputFile(file_path)
+        await message.answer_document(
+            document=document,
+            caption="✅ Дамп бази даних успішно сформовано!"
+        )
+
+    except Exception as e:
+        await message.answer(f"❌ Виникла помилка при створенні дампу: {e}")
+
+    finally:
+        # 4. Прибираємо за собою (видаляємо файл з сервера після відправки)
+        if file_path is not None and os.path.exists(file_path):
+            os.remove(file_path)

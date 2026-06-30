@@ -31,7 +31,7 @@ async def on_shutdown(bot):
     print('Бот ліг')
 
 async def main():
-    # await add_new_speciality()
+    await add_new_speciality()
     # await create_new_column_id_file()
     dp.startup.register(on_startup)
     dp.shutdown.register(on_shutdown)

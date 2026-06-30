@@ -1,0 +1,3 @@
+TOKEN=
+ADMINS=
+DB_LITE=sqlite+aiosqlite:///db.sqlite3

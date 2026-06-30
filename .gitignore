@@ -1,0 +1,32 @@
+# КЕШ ТА КОМПІЛЬОВАНІ ФАЙЛИ ПАЙТОНА
+__pycache__/
+*.py[cod]
+*$py.class
+
+# ВІРТУАЛЬНІ СЕРЕДОВИЩА
+.venv/
+venv/
+env/
+ENV/
+
+# НАЛАШТУВАННЯ ТА СЕКРЕТИ
+.env
+*.secret
+
+# ФАЙЛИ ТЕСТУВАННЯ
+.pytest_cache/
+.coverage
+htmlcov/
+
+# ПАКУВАННЯ ТА БІЛДИ
+build/
+dist/
+*.egg-info/
+
+# НАЛАШТУВАННЯ РЕДАКТОРІВ ТА IDE
+.vscode/
+.idea/
+
+# СИСТЕМНІ ФАЙЛИ (macOS/Windows)
+.DS_Store
+Thumbs.db
