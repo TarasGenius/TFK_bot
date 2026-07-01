@@ -1,4 +1,11 @@
+import os
+from pathlib import Path
+from dotenv import load_dotenv
 
+load_dotenv()
+
+# Ключі
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
 
 START_ANSWER = ('Привіт, якщо зареєструєшся через /register я буду сповіщати тебе про екзамени.'
@@ -17,3 +24,9 @@ SPECIALITY = {
     "Підприємництво": 'PT'
 
 }
+BASE_DIR = Path(__file__).resolve().parent
+
+
+KNOWLEDGE_BASE_PATH = str(BASE_DIR / "app" / "knowledge_base")
+CHROMA_DB_PATH = str(BASE_DIR / "app" / "knowledge_base")
+print(KNOWLEDGE_BASE_PATH, CHROMA_DB_PATH)

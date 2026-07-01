@@ -17,6 +17,17 @@ class UserSpeciality(Base):
     user = relationship("User", back_populates="user_specialities")
     speciality = relationship("Speciality", back_populates="user_specialities")
 
+
+class UserProfession(Base):
+    __tablename__ = 'user_professions'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(BigInteger, ForeignKey('users.id'))
+    profession_id = Column(Integer, ForeignKey('professions.id'))
+
+    user = relationship("User", back_populates="user_professions")
+    profession = relationship("Profession", back_populates="user_professions")
+
 class Answer(Base):
     __tablename__ = "answers"
 
@@ -52,13 +63,13 @@ class User(Base):
 
     answers = relationship("Answer", back_populates="user")
     user_specialities = relationship("UserSpeciality", back_populates="user", cascade="all, delete-orphan")
-
+    user_professions = relationship("UserProfession", back_populates="user", cascade="all, delete-orphan")
 
 class DellUser(Base):
     __tablename__ = "dell_users"
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    user_id: Mapped[int] = mapped_column(BigInteger, unique=True)
+    user_id: Mapped[int] = mapped_column(BigInteger, unique=False)
     first_name: Mapped[str] = mapped_column(String(150), nullable=True)
     last_name: Mapped[str] = mapped_column(String(150), nullable=True)
     teleg_phone: Mapped[str] = mapped_column(String(13), nullable=True)
@@ -67,3 +78,13 @@ class DellUser(Base):
     user_speciality: Mapped[str] = mapped_column(Text, nullable=True)
 
 
+
+class Profession(Base):
+    __tablename__ = "professions"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(Text)
+    call_back: Mapped[str] = mapped_column(Text)
+    id_file: Mapped[str] = mapped_column(Text, nullable=True)
+
+    user_professions = relationship("UserProfession", back_populates="profession", cascade="all, delete-orphan")

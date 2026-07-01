@@ -1,3 +1,4 @@
 TOKEN=
 ADMINS=
 DB_LITE=sqlite+aiosqlite:///db.sqlite3
+GEMINI_API_KEY=

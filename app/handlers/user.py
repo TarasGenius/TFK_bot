@@ -9,7 +9,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
-from app.config import START_ANSWER
+from config import START_ANSWER
 from app.database.models import Speciality, User, Answer
 from app.database.orm_query import orm_add_user, orm_get_specialities, orm_set_user_specialities
 
@@ -191,7 +191,7 @@ async def create_specialities_keyboard(
 @user_router.message(Command('register'))
 async def register(message: Message, state: FSMContext):
     await state.set_state(Register.full_name)
-    await message.answer("Введіть повне ім'я(ПІБ)")
+    await message.answer("Введіть Призвище Ім'я По-батькові як в паспорті")
 
 
 # 2. Введення імені
@@ -199,7 +199,7 @@ async def register(message: Message, state: FSMContext):
 async def register_second_step(message: Message, state: FSMContext):
     await state.update_data(full_name=message.text)
     await state.set_state(Register.reg_phone)
-    await message.answer('Введіть номер телефону(0661234567)')
+    await message.answer('Введіть номер телефону за зразком починаючи з нуля (0661234567)')
 
 
 # 3. Введення телефону -> Перехід до вибору спеціальностей
@@ -275,7 +275,8 @@ async def process_speciality_confirm(callback: CallbackQuery, state: FSMContext,
         await callback.message.edit_text("❌ Ви вже зареєстровані.")
     else:
         await callback.message.edit_text(
-            f"✅ Реєстрацію завершено! Ваше ім'я: {user_data['full_name']}.\nСпеціальності успішно збережено.")
+            f"✅ Реєстрацію завершено! Ваше ім'я: {user_data['full_name']}.\nСпеціальності успішно збережено. \n \
+            Якщо потрібно, вибір професій Кваліфікованого робітника доступний по команді /profession")
     finally:
         await state.clear()
 
@@ -316,3 +317,5 @@ async def send_requested_file(callback: CallbackQuery, session: AsyncSession, bo
             await session.commit()
     else:
         await callback.answer("❌ Файл не знайдено або не прикріплений адміністратором.")
+
+

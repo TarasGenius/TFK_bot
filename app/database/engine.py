@@ -6,7 +6,7 @@ from app.database.models import Base
 from dotenv import load_dotenv
 load_dotenv()
 
-from app.database.models import Speciality
+from app.database.models import Speciality, Profession, UserProfession
 from sqlalchemy import select, text
 
 print(os.getenv('DB_LITE'))
@@ -46,6 +46,7 @@ async def add_new_speciality():
             {'name': "Автомобільний транспорт", 'call_back': 'AT'},
             {'name': "Транспортні технології", 'call_back': 'TT'},
             {'name': "Підприємництво", 'call_back': 'PT'},
+            {'name': "Кваліфікований робітник", 'call_back': 'NOL'},
 
         ]
 
@@ -71,3 +72,53 @@ async def add_new_speciality():
             print(f"Успішно додано {len(new_specialities_to_add)} нових спеціальностей.")
         else:
             print("Нових спеціальностей для додавання не знайдено. Всі вже існують в базі даних.")
+
+
+from sqlalchemy import select
+
+
+# Переконайтеся, що імпортували модель Profession
+# from your_models_file import Profession
+
+async def add_new_profession():
+    print("Спроба додати нові професії...")
+    # Створюємо сесію за допомогою нашої фабрики
+    async with session_maker() as session:
+        # Список професій, які ми хочемо додати з унікальними колбеками
+        professions_data = [
+            # Професії на базі 9 класів
+            {'name': "Майстер діагност Слюсар КТЗ (9кл.)", 'call_back': 'MDS_KTZ_9'},
+            {'name': "Е-зварювальник слюсар КТЗ (9кл.)", 'call_back': 'EZ_SKTZ_9'},
+            {'name': "Е-зварювальник Сл-ремонтник (9кл.)", 'call_back': 'EZ_SR_9'},
+            {'name': "Майстер діагност Сл-ремонтник (9кл.)", 'call_back': 'MD_SR_9'},
+            {'name': "Кравець (9кл.)", 'call_back': 'KRAV_9'},
+
+            # Професії на базі 11 класів
+            {'name': "Флорист (11кл.)", 'call_back': 'FLOR_11'},
+            {'name': "Оператор ЧПК (11кл.)", 'call_back': 'OP_CHPK_11'},
+            {'name': "Слюсар колісних транспортних засобів (11кл.)", 'call_back': 'SKTZ_11'},
+            {'name': "Слюсар кондиціонерів (11кл.)", 'call_back': 'SKON_11'},
+        ]
+
+        # 1. Отримуємо імена всіх існуючих професій, щоб уникнути дублікатів
+        query = select(Profession.name)
+        result = await session.execute(query)
+        # Створюємо множину (set) для швидкого пошуку
+        existing_names = {row[0] for row in result.all()}
+
+        print(f"Існуючі професії в БД: {existing_names or 'немає'}")
+
+        # 2. Фільтруємо список, залишаючи тільки ті, яких ще немає в базі
+        new_professions_to_add = [
+            Profession(name=item['name'], call_back=item['call_back'])
+            for item in professions_data
+            if item['name'] not in existing_names
+        ]
+
+        # 3. Якщо є що додати, додаємо їх і зберігаємо зміни
+        if new_professions_to_add:
+            session.add_all(new_professions_to_add)
+            await session.commit()
+            print(f"Успішно додано {len(new_professions_to_add)} нових професій.")
+        else:
+            print("Нових професій для додавання не знайдено. Всі вже існують в базі даних.")
