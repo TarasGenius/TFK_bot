@@ -9,7 +9,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
-from config import START_ANSWER
+from config import START_ANSWER, GROUP_ID
 from app.database.models import Speciality, User, Answer
 from app.database.orm_query import orm_add_user, orm_get_specialities, orm_set_user_specialities
 
@@ -319,3 +319,40 @@ async def send_requested_file(callback: CallbackQuery, session: AsyncSession, bo
         await callback.answer("❌ Файл не знайдено або не прикріплений адміністратором.")
 
 
+
+class UploadFile(StatesGroup):
+    waiting_file = State()
+
+
+@user_router.message(Command("file"))
+async def cmd_file(message: Message, state: FSMContext):
+    await state.set_state(UploadFile.waiting_file)
+    await message.answer("📁 Надішліть файл, який потрібно завантажити.")
+
+
+@user_router.message(UploadFile.waiting_file)
+async def receive_any(message: Message, state: FSMContext):
+
+    if message.document:
+        await message.bot.send_document(
+            GROUP_ID,
+            message.document.file_id
+        )
+
+    elif message.photo:
+        await message.bot.send_photo(
+            GROUP_ID,
+            message.photo[-1].file_id
+        )
+
+    elif message.video:
+        await message.answer("Лише фото або документи")
+
+    elif message.audio:
+        await message.answer("Лише фото або документи")
+    else:
+        await message.answer("Будь ласка, надішліть файл.")
+        return
+
+    await message.answer("✅ Успішно.")
+    await state.clear()
