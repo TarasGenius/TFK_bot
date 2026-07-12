@@ -1,8 +1,9 @@
 import asyncio
 import os
-from aiogram import Router, F
-from aiogram import types
-from aiogram.types import Message, FSInputFile
+import tempfile
+import pandas as pd
+from aiogram import Router, F, types, Bot
+from aiogram.types import Message, FSInputFile, CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup
 from aiogram.fsm.context import FSMContext
 from aiogram.filters import Command
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -13,7 +14,7 @@ from sqlalchemy import select
 from app.database.models import Speciality, UserSpeciality, User, Profession, UserProfession
 from app.database.orm_query import orm_del_user, orm_get_users, generate_users_csv_dump, generate_professions_csv_dump
 from app.filters.is_admin import IsAdmin
-from app.keyboards.inline import get_callback_buttons
+from app.services.generate_doc import generate_merged_document
 
 admin_router = Router()
 admin_router.message.filter(IsAdmin())
@@ -302,3 +303,128 @@ async def send_profession_db_dump(message: Message, session: AsyncSession):
         # Прибираємо за собою (видаляємо тимчасовий файл з сервера)
         if file_path is not None and os.path.exists(file_path):
             os.remove(file_path)
+
+
+
+class DocGenState(StatesGroup):
+    waiting_for_template = State()
+    waiting_for_csv = State()
+    waiting_for_declension = State()
+    processing = State()
+
+
+@admin_router.message(Command("generate"))
+async def start_generation(message: Message, state: FSMContext):
+    await state.clear()
+    await message.answer("Відправте файл шаблону у форматі **.docx**.")
+    await state.set_state(DocGenState.waiting_for_template)
+
+
+@admin_router.message(DocGenState.waiting_for_template, F.document)
+async def process_template(message: Message, bot: Bot, state: FSMContext):
+    if not message.document.file_name.endswith('.docx'):
+        return await message.answer("Це не .docx файл. Відправте правильний шаблон.")
+
+    template_path = tempfile.mktemp(suffix=".docx")
+    await bot.download(message.document, destination=template_path)
+
+    await state.update_data(template_path=template_path)
+    await message.answer("Чудово! Тепер відправте **.csv** файл із даними.")
+    await state.set_state(DocGenState.waiting_for_csv)
+
+
+@admin_router.message(DocGenState.waiting_for_csv, F.document)
+async def process_csv(message: Message, bot: Bot, state: FSMContext):
+    if not message.document.file_name.endswith('.csv'):
+        return await message.answer("Це не .csv файл. Відправте правильний файл даних.")
+
+    csv_path = tempfile.mktemp(suffix=".csv")
+    await bot.download(message.document, destination=csv_path)
+
+    df = pd.read_csv(csv_path, nrows=0)
+    columns = list(df.columns)
+
+    await state.update_data(
+        csv_path=csv_path,
+        columns=columns,
+        current_col_index=0,
+        declension_rules={}
+    )
+
+    await ask_next_column(message, state)
+
+
+async def ask_next_column(message_or_call, state: FSMContext):
+    data = await state.get_data()
+    columns = data['columns']
+    current_col_index = data['current_col_index']
+
+    if current_col_index < len(columns):
+        col_name = columns[current_col_index]
+
+        # Клавіатура з вибором відмінка
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="❌ Не відмінювати", callback_data="case_none")],
+            [InlineKeyboardButton(text="Кого? Чого? (Родовий)", callback_data="case_gent")],
+            [InlineKeyboardButton(text="Кому? Чому? (Давальний)", callback_data="case_datv")],
+            [InlineKeyboardButton(text="Ким? Чим? (Орудний)", callback_data="case_ablt")]
+        ])
+
+        text = f"Оберіть відмінок для стовпчика: **{col_name}**\n\n*(Якщо колонка містить слово 'name', 'піб' або 'ім'я', буде застосовано розумне відмінювання для ПІБ)*"
+
+        if isinstance(message_or_call, Message):
+            await message_or_call.answer(text, reply_markup=kb)
+        else:
+            await message_or_call.message.edit_text(text, reply_markup=kb)
+
+        await state.set_state(DocGenState.waiting_for_declension)
+    else:
+        await start_document_generation(message_or_call, state)
+
+
+@admin_router.callback_query(DocGenState.waiting_for_declension, F.data.startswith("case_"))
+async def process_declension_answer(call: CallbackQuery, state: FSMContext):
+    # Отримуємо відмінок (наприклад, 'gent', 'datv' або 'none')
+    selected_case = call.data.split("_")[1]
+
+    data = await state.get_data()
+    columns = data['columns']
+    current_col_index = data['current_col_index']
+    declension_rules = data['declension_rules']
+
+    col_name = columns[current_col_index]
+    declension_rules[col_name] = selected_case
+
+    await state.update_data(
+        current_col_index=current_col_index + 1,
+        declension_rules=declension_rules
+    )
+
+    await ask_next_column(call, state)
+
+
+async def start_document_generation(call: CallbackQuery, state: FSMContext):
+    await state.set_state(DocGenState.processing)
+    await call.message.edit_text("⏳ Генерую документи... Зачекайте хвилинку!")
+
+    data = await state.get_data()
+
+    try:
+        final_doc_path = await asyncio.to_thread(
+            generate_merged_document,
+            data['template_path'],
+            data['csv_path'],
+            data['declension_rules']
+        )
+
+        result_file = FSInputFile(final_doc_path, filename="Згенеровані_документи.docx")
+        await call.message.answer_document(result_file, caption="✅ Готово! Ваші документи згенеровано.")
+
+        os.remove(final_doc_path)
+        os.remove(data['template_path'])
+        os.remove(data['csv_path'])
+
+    except Exception as e:
+        await call.message.answer(f"❌ Сталася помилка під час генерації: {e}")
+    finally:
+        await state.clear()
